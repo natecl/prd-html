@@ -140,19 +140,33 @@
     }
   }
 
+  function applyCollapsed(h, collapsed) {
+    const level = +h.tagName[1];
+    h.classList.toggle('collapsed', collapsed);
+    let el = h.nextElementSibling;
+    while (el && !(/^H[1-6]$/.test(el.tagName) && +el.tagName[1] <= level)) {
+      el.style.display = collapsed ? 'none' : '';
+      el = el.nextElementSibling;
+    }
+  }
+
   function makeCollapsible(root) {
     root.querySelectorAll('h2, h3').forEach((h) => {
-      h.addEventListener('click', () => {
-        const level = +h.tagName[1];
-        h.classList.toggle('collapsed');
-        const hide = h.classList.contains('collapsed');
-        let el = h.nextElementSibling;
-        while (el && !(/^H[1-6]$/.test(el.tagName) && +el.tagName[1] <= level)) {
-          el.style.display = hide ? 'none' : '';
-          el = el.nextElementSibling;
-        }
-      });
+      h.addEventListener('click', () => applyCollapsed(h, !h.classList.contains('collapsed')));
     });
+  }
+
+  // Capture/restore which sections are collapsed, keyed by heading, so an
+  // edit-triggered re-render doesn't reset the reader's view.
+  const headKey = (h) => h.tagName + ':' + h.textContent.trim();
+  function getCollapsedKeys(root) {
+    const set = new Set();
+    root.querySelectorAll('h2.collapsed, h3.collapsed').forEach((h) => set.add(headKey(h)));
+    return set;
+  }
+  function restoreCollapsed(root, keys) {
+    if (!keys || !keys.size) return;
+    root.querySelectorAll('h2, h3').forEach((h) => { if (keys.has(headKey(h))) applyCollapsed(h, true); });
   }
 
   function wireCheckboxes(root) {
@@ -260,7 +274,17 @@
       const res = await fetch('/prd.md', { cache: 'no-store' });
       if (!res.ok) return;
       const md = await res.text();
-      if (md && md !== prdMd) { prdMd = md; renderDoc(prdMd); }
+      if (md && md !== prdMd) {
+        // Re-render to show the edit, but keep the reader's view: preserve which
+        // sections are collapsed and the scroll position so nothing visibly resets.
+        const doc = document.getElementById('doc');
+        const collapsed = getCollapsedKeys(doc);
+        const scroll = doc.scrollTop;
+        prdMd = md;
+        renderDoc(prdMd);
+        restoreCollapsed(doc, collapsed);
+        doc.scrollTop = scroll;
+      }
     } catch {}
   }
 
